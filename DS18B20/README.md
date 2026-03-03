@@ -177,6 +177,17 @@ Sends a reset pulse and checks if the sensor is present. Useful for checking if 
 
 ---
 
+### `DS18B20_ReadPowerSupply()`
+```c
+DS18B20_Status_t DS18B20_ReadPowerSupply(DS18B20_HandleTypeDef *hds, uint8_t *parasitic);
+```
+Checks how the sensor is being powered.
+
+| `*parasitic` value | Meaning |
+|--------------------|---------|
+| `0` | Parasitic — sensor powered from data line |
+| `1` | External VCC connected |
+
 ## Resolution Options
 
 | Constant | Value | Precision | Conversion Time |
