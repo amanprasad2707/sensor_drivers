@@ -166,6 +166,41 @@ DS18B20_Status_t DS18B20_SetResolution(DS18B20_HandleTypeDef *hds, uint8_t res);
  */
 DS18B20_Status_t DS18B20_ReadPowerSupply(DS18B20_HandleTypeDef *hds, uint8_t *parasitic);
 
+/**
+ * @brief  Reads the unique 64-bit ROM code of the sensor on the bus.
+ * @note   Only use when exactly ONE sensor is connected. If multiple sensors
+ *         are present, responses will collide and data will be corrupted.
+ *         Connect sensors one by one, note each ROM code, then hardcode them.
+ * @param  hds  Pointer to DS18B20 handle
+ * @param  rom  Output: 8-byte array to store the ROM code (index 0 = family code 0x28)
+ * @retval DS18B20_OK, DS18B20_ERR_NO_DEVICE, DS18B20_ERR_CRC
+ */
+DS18B20_Status_t DS18B20_ReadROM(DS18B20_HandleTypeDef *hds, uint8_t *rom);
+
+
+/**
+ * @brief  Addresses one specific sensor by its ROM code, ignoring all others on the bus.
+ * @note   Must be followed immediately by a function command (e.g. Convert_T, Read Scratchpad).
+ *         Any other command after this will target the matched sensor only.
+ * @param  hds  Pointer to DS18B20 handle
+ * @param  rom  8-byte ROM code of the sensor to address
+ * @retval DS18B20_OK, DS18B20_ERR_NO_DEVICE, DS18B20_ERR_TIMEOUT
+ */
+DS18B20_Status_t DS18B20_MatchROM(DS18B20_HandleTypeDef *hds, uint8_t *rom);
+
+
+/**
+ * @brief  Triggers conversion and reads temperature from one specific sensor by ROM code.
+ * @note   Only the targeted sensor converts. Other sensors on the bus are unaffected.
+ *         For reading multiple sensors efficiently, use DS18B20_StartConversion() once
+ *         (Skip ROM) then call this for each sensor — avoids repeated conversion delays.
+ * @param  hds          Pointer to DS18B20 handle
+ * @param  rom          8-byte ROM code of the target sensor
+ * @param  temperature  Output: temperature in °C
+ * @retval DS18B20_OK, DS18B20_ERR_NO_DEVICE, DS18B20_ERR_CRC, DS18B20_ERR_RANGE
+ */
+DS18B20_Status_t DS18B20_GetTemperatureByROM(DS18B20_HandleTypeDef *hds, uint8_t *rom, float *temperature);
+
 
 /**
  * @brief  Must be called from HAL_UART_RxCpltCallback for the correct UART.
