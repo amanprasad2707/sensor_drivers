@@ -188,6 +188,50 @@ Checks how the sensor is being powered.
 | `0` | Parasitic — sensor powered from data line |
 | `1` | External VCC connected |
 
+
+### `DS18B20_ReadROM()`
+```c
+DS18B20_Status_t DS18B20_ReadROM(DS18B20_HandleTypeDef *hds, uint8_t *rom);
+```
+Reads the unique 64-bit ROM code of the sensor. Use this once per sensor to discover its address.
+
+> ⚠️ Only works when **one sensor is on the bus**. Connect sensors one by one, read and note each ROM code, then hardcode them in your project.
+
+---
+
+### `DS18B20_MatchROM()`
+```c
+DS18B20_Status_t DS18B20_MatchROM(DS18B20_HandleTypeDef *hds, uint8_t *rom);
+```
+Addresses one specific sensor by its ROM code, ignoring all others on the bus. Must be followed immediately by a function command like `Read Scratchpad`.
+
+---
+
+### `DS18B20_GetTemperatureByROM()` ⭐ Use this for multiple sensors
+```c
+DS18B20_Status_t DS18B20_GetTemperatureByROM(DS18B20_HandleTypeDef *hds, uint8_t *rom, float *temperature);
+```
+Triggers conversion and reads temperature from one specific sensor. All other sensors on the bus are unaffected.
+
+| Parameter | Description |
+|-----------|-------------|
+| `hds` | Pointer to DS18B20 handle |
+| `rom` | 8-byte ROM code of the target sensor |
+| `temperature` | Output: temperature in °C |
+
+> 💡 **Tip:** If reading multiple sensors, call `DS18B20_StartConversion()` once with Skip ROM (converts all simultaneously), then call this function for each sensor. This avoids waiting for conversion time per sensor.
+```c
+// Efficient multi-sensor read
+DS18B20_StartConversion(&hds18b20);
+HAL_Delay(DS18B20_CONV_TIME_12BIT);
+
+DS18B20_GetTemperatureByROM(&hds18b20, sensor1_rom, &temp1);
+DS18B20_GetTemperatureByROM(&hds18b20, sensor2_rom, &temp2);
+```
+
+---
+
+
 ## Resolution Options
 
 | Constant | Value | Precision | Conversion Time |
