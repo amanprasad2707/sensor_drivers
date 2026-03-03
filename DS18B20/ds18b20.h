@@ -158,6 +158,14 @@ DS18B20_Status_t DS18B20_GetTemperature(DS18B20_HandleTypeDef *hds, float *tempe
 DS18B20_Status_t DS18B20_SetResolution(DS18B20_HandleTypeDef *hds, uint8_t res);
 
 
+/**
+ * @brief  Checks if the sensor is parasitic powered or on external VCC.
+ * @param  hds       Pointer to DS18B20 handle
+ * @param  parasitic Output: 0 = parasitic, 1 = external VCC
+ * @retval DS18B20_OK or error code
+ */
+DS18B20_Status_t DS18B20_ReadPowerSupply(DS18B20_HandleTypeDef *hds, uint8_t *parasitic);
+
 
 /**
  * @brief  Must be called from HAL_UART_RxCpltCallback for the correct UART.

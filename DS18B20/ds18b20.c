@@ -179,7 +179,7 @@ DS18B20_Status_t DS18B20_ReadTemperature(DS18B20_HandleTypeDef *hds, float *temp
 
 /* -------------------------------------------------------------------------- */
 DS18B20_Status_t DS18B20_GetTemperature(DS18B20_HandleTypeDef *hds, float *temperature){
-    int8_t ret;
+    DS18B20_Status_t ret;
 
     /* Step 1: trigger conversion */
     ret = DS18B20_StartConversion(hds);
@@ -200,7 +200,7 @@ DS18B20_Status_t DS18B20_GetTemperature(DS18B20_HandleTypeDef *hds, float *tempe
 
 /* -------------------------------------------------------------------------- */
 DS18B20_Status_t DS18B20_SetResolution(DS18B20_HandleTypeDef *hds, uint8_t res){
-    int8_t ret = DS18B20_Reset(hds);
+    DS18B20_Status_t ret = DS18B20_Reset(hds);
     if (ret != DS18B20_OK) return ret;
 
     DS18B20_WriteByte(hds, DS18B20_CMD_SKIP_ROM);
@@ -218,6 +218,19 @@ DS18B20_Status_t DS18B20_SetResolution(DS18B20_HandleTypeDef *hds, uint8_t res){
     HAL_Delay(10);   /* EEPROM write time ~10ms */
 
     hds->resolution = res;
+    return DS18B20_OK;
+}
+
+/* -------------------------------------------------------------------------- */
+DS18B20_Status_t DS18B20_ReadPowerSupply(DS18B20_HandleTypeDef *hds, uint8_t *parasitic) {
+    DS18B20_Status_t ret = DS18B20_Reset(hds);
+    if (ret != DS18B20_OK) return ret;
+
+    DS18B20_WriteByte(hds, DS18B20_CMD_SKIP_ROM);
+    DS18B20_WriteByte(hds, DS18B20_CMD_READ_POWER);
+
+    // Sensor pulls line LOW = parasitic powered (0), releases = external VCC (1)
+    *parasitic = (DS18B20_ReadByte(hds) == 0x00) ? 0 : 1;
     return DS18B20_OK;
 }
 
