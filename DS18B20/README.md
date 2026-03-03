@@ -219,4 +219,4 @@ Always check the return value — it tells you exactly what went wrong.
 
 ## Demo Example File
 
-See [`ds18b20_demo.c`](ds18b20_demo.c) for a complete working example.
+See [`./examples/demo.c`](./examples/demo.c) for a complete working example.
