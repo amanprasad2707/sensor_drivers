@@ -89,7 +89,7 @@ DS18B20_HandleTypeDef hds18b20;
 ### 3. Initialize in `main()`
 
 ```c
-DS18B20_Init(&hds18b20, &huart1, DS18B20_RES_12BIT);
+DS18B20_Init(&hds18b20, &huart1);
 ```
 
 ### 4. Read temperature
@@ -125,23 +125,22 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
 
 ### `DS18B20_Init()`
 ```c
-void DS18B20_Init(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart, uint8_t res);
+void DS18B20_Init(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart);
 ```
-Sets up the library. Call this once before anything else.
+Sets up the library. Call this once before anything else. Does not communicate with the sensor — no bus activity occurs.
 
 | Parameter | Description |
 |-----------|-------------|
 | `hds` | Pointer to your DS18B20 handle |
 | `huart` | Pointer to your HAL UART handle (e.g. `&huart1`) |
-| `res` | Starting resolution — see table below |
 
 ---
 
-### `DS18B20_GetTemperature()` ⭐ Main function
+### `DS18B20_GetTemperature()` ⭐ Start here
 ```c
 DS18B20_Status_t DS18B20_GetTemperature(DS18B20_HandleTypeDef *hds, float *temperature);
 ```
-Does everything: triggers conversion, waits, reads result. Easiest way to get a temperature reading.
+Does everything: triggers conversion, waits, reads result. Easiest way to get a temperature reading. Uses Skip ROM — works with one sensor on the bus.
 
 ---
 
@@ -149,7 +148,7 @@ Does everything: triggers conversion, waits, reads result. Easiest way to get a 
 ```c
 DS18B20_Status_t DS18B20_StartConversion(DS18B20_HandleTypeDef *hds);
 ```
-Tells the sensor to start measuring. **Non-blocking** — you must wait for conversion to finish before reading (see delays below).
+Tells all sensors on the bus to start measuring simultaneously. **Non-blocking** — you must wait for conversion to finish before reading.
 
 ---
 
@@ -157,7 +156,7 @@ Tells the sensor to start measuring. **Non-blocking** — you must wait for conv
 ```c
 DS18B20_Status_t DS18B20_ReadTemperature(DS18B20_HandleTypeDef *hds, float *temperature);
 ```
-Reads the scratchpad memory and returns temperature in °C. Call this after `DS18B20_StartConversion()` + delay.
+Reads the scratchpad and returns temperature in °C. Call this after `DS18B20_StartConversion()` + delay for single sensor, or after `DS18B20_MatchROM()` for multi-sensor reads.
 
 ---
 
@@ -165,7 +164,9 @@ Reads the scratchpad memory and returns temperature in °C. Call this after `DS1
 ```c
 DS18B20_Status_t DS18B20_SetResolution(DS18B20_HandleTypeDef *hds, uint8_t res);
 ```
-Changes sensor resolution and saves it to the sensor's EEPROM (survives power off).
+Changes sensor resolution and saves it to the sensor's EEPROM (survives power off). Also updates `hds->resolution` so conversion delays in `DS18B20_GetTemperature()` adjust automatically.
+
+> 💡 Resolution is **not** set during `DS18B20_Init()`. The handle defaults to `DS18B20_RES_12BIT` internally which matches the sensor's factory default. Call `DS18B20_SetResolution()` explicitly only if you need a different resolution.
 
 ---
 
@@ -173,7 +174,7 @@ Changes sensor resolution and saves it to the sensor's EEPROM (survives power of
 ```c
 DS18B20_Status_t DS18B20_Reset(DS18B20_HandleTypeDef *hds);
 ```
-Sends a reset pulse and checks if the sensor is present. Useful for checking if the sensor is connected.
+Sends a reset pulse and checks if the sensor is present. Useful for verifying a sensor is connected before starting a sequence.
 
 ---
 
@@ -185,9 +186,12 @@ Checks how the sensor is being powered.
 
 | `*parasitic` value | Meaning |
 |--------------------|---------|
-| `0` | Parasitic — sensor powered from data line |
 | `1` | External VCC connected |
+| `0` | Parasitic — sensor powered from data line |
 
+> ⚠️ If parasitic mode is detected, normal temperature conversion will fail or return garbage. A strong pull-up GPIO is required during conversion. Recommended: always connect VDD to 3.3V.
+
+---
 
 ### `DS18B20_ReadROM()`
 ```c
@@ -199,19 +203,43 @@ Reads the unique 64-bit ROM code of the sensor. Use this once per sensor to disc
 
 ---
 
+### `DS18B20_SearchROM()`
+```c
+DS18B20_Status_t DS18B20_SearchROM(DS18B20_HandleTypeDef *hds, uint8_t rom_codes[][8], uint8_t max, uint8_t *found);
+```
+Automatically discovers all DS18B20 sensors on the bus. Use when sensor count is unknown or sensors can change at runtime. No need to hardcode ROM codes.
+
+| Parameter | Description |
+|-----------|-------------|
+| `hds` | Pointer to DS18B20 handle |
+| `rom_codes` | Output: 2D array to store found ROM codes `[max][8]` |
+| `max` | Size of `rom_codes` array — limits how many sensors to search for |
+| `found` | Output: number of sensors actually found |
+
+```c
+uint8_t rom_codes[10][8];
+uint8_t found = 0;
+
+DS18B20_SearchROM(&hds18b20, rom_codes, 10, &found);
+// found now contains the number of sensors discovered
+// rom_codes[0..found-1] contain their ROM codes
+```
+
+---
+
 ### `DS18B20_MatchROM()`
 ```c
 DS18B20_Status_t DS18B20_MatchROM(DS18B20_HandleTypeDef *hds, uint8_t *rom);
 ```
-Addresses one specific sensor by its ROM code, ignoring all others on the bus. Must be followed immediately by a function command like `Read Scratchpad`.
+Addresses one specific sensor by its ROM code, ignoring all others on the bus. Must be followed immediately by `DS18B20_ReadTemperature()`.
 
 ---
 
-### `DS18B20_GetTemperatureByROM()` ⭐ Use this for multiple sensors
+### `DS18B20_GetTemperatureByROM()` ⭐ Use this for a specific sensor
 ```c
 DS18B20_Status_t DS18B20_GetTemperatureByROM(DS18B20_HandleTypeDef *hds, uint8_t *rom, float *temperature);
 ```
-Triggers conversion and reads temperature from one specific sensor. All other sensors on the bus are unaffected.
+Triggers conversion on one specific sensor and reads its temperature. Handles the full sequence internally — no need to call `MatchROM` or `ReadTemperature` separately.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -219,18 +247,28 @@ Triggers conversion and reads temperature from one specific sensor. All other se
 | `rom` | 8-byte ROM code of the target sensor |
 | `temperature` | Output: temperature in °C |
 
-> 💡 **Tip:** If reading multiple sensors, call `DS18B20_StartConversion()` once with Skip ROM (converts all simultaneously), then call this function for each sensor. This avoids waiting for conversion time per sensor.
+---
+
+## Multi-Sensor Pattern
+
+When reading multiple sensors, trigger conversion once for all then read each individually. This is more efficient than converting each sensor separately.
+
 ```c
-// Efficient multi-sensor read
+// Convert all sensors simultaneously (Skip ROM broadcasts to everyone)
 DS18B20_StartConversion(&hds18b20);
 HAL_Delay(DS18B20_CONV_TIME_12BIT);
 
-DS18B20_GetTemperatureByROM(&hds18b20, sensor1_rom, &temp1);
-DS18B20_GetTemperatureByROM(&hds18b20, sensor2_rom, &temp2);
+// Read each sensor individually by ROM code
+DS18B20_MatchROM(&hds18b20, sensor1_rom);
+DS18B20_ReadTemperature(&hds18b20, &temp1);
+
+DS18B20_MatchROM(&hds18b20, sensor2_rom);
+DS18B20_ReadTemperature(&hds18b20, &temp2);
 ```
 
----
+Total wait = 1 × conversion time regardless of sensor count.
 
+---
 
 ## Resolution Options
 
@@ -269,9 +307,26 @@ Always check the return value — it tells you exactly what went wrong.
 | Always returns `ERR_CRC` | Noisy wiring, missing pull-up, or long wire without proper shielding |
 | Temperature reads `0.0` | DMA callbacks not implemented — `ReadByte` is timing out silently |
 | Works once then stops | UART not re-initializing baud rate correctly — check HAL half-duplex config |
+| `SearchROM` returns `ERR_NO_DEVICE` after first round | UART buffer not flushed — leftover bytes from bit walk confuse presence detection |
+| Both `bit` and `bit_cmp` read as 1 in `SearchROM` | Delay inside bit loop causes sensor timeout — no delays allowed during 64-bit walk |
+| Parasitic mode — temperature garbage or CRC errors | Strong pull-up GPIO required during conversion — connect VDD to 3.3V instead |
 
 ---
 
-## Demo Example File
+## Examples
 
-See [`./examples/demo.c`](./examples/demo.c) for a complete working example.
+| File | What it covers |
+|------|---------------|
+| `1_single_sensor.c` | Basic temperature read — start here |
+| `2_set_resolution.c` | Change resolution, saved to EEPROM |
+| `3_nonblocking.c` | `StartConversion` + `ReadTemperature` separately, CPU free during conversion |
+| `4_read_rom.c` | Get ROM code of one sensor, prints C array format ready to paste |
+| `5_search_rom.c` | Auto-discover all sensors on bus, print ROM codes |
+| `6_multi_hardcoded.c` | Multiple sensors with known ROM codes, efficient convert-all-read-each |
+| `7_multi_dynamic.c` | Multiple sensors, `SearchROM` at startup, no hardcoding |
+| `8_get_temperature_by_rom.c` | Read one specific sensor by ROM code |
+| `9_power_supply.c` | Detect parasitic vs external power |
+
+## Example
+
+See [`./examples`](./examples) for a complete working example.
