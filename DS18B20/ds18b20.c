@@ -56,11 +56,34 @@ static uint8_t onewire_crc8(const uint8_t *data, uint8_t len){
     return crc;
 }
 
+
+/**
+ * @brief  Read a single bit from the 1-Wire bus (used for Search ROM).
+ */
+static uint8_t DS18B20_ReadBit(DS18B20_HandleTypeDef *hds) {
+    uint8_t tx_data = BIT_1;
+    uint8_t rx_data = 0;
+    HAL_UART_Transmit(hds->huart, &tx_data, 1, 10);
+    HAL_UART_Receive(hds->huart, &rx_data, 1, 10);
+    return (rx_data == 0xFF) ? 1 : 0;
+}
+
+/**
+ * @brief  Write a single bit to the 1-Wire bus (used for Search ROM).
+ */
+static void DS18B20_WriteBit(DS18B20_HandleTypeDef *hds, uint8_t bit) {
+    uint8_t tx_data = (bit ? BIT_1 : BIT_0);
+    uint8_t rx_data = 0;
+    HAL_UART_Transmit(hds->huart, &tx_data, 1, 10);
+    HAL_UART_Receive(hds->huart, &rx_data, 1, 10); /* Flush echo */
+}
+
+
 /* Public API ----------------------------------------------------------------*/
 
-void DS18B20_Init(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart, uint8_t res){
+void DS18B20_Init(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart){
     hds->huart      = huart;
-    hds->resolution = res;
+    hds->resolution = DS18B20_RES_12BIT;
     hds->rxDone     = 0;
 }
 
@@ -110,14 +133,18 @@ uint8_t DS18B20_ReadByte(DS18B20_HandleTypeDef *hds){
 
     /* Start DMA TX then DMA RX — in half-duplex the peripheral echoes
      * what was actually on the bus (sensor can pull it low to send a 0) */
-    if (HAL_UART_Transmit_DMA(hds->huart, tx_buf, 8) != HAL_OK) return 0;
-    if (HAL_UART_Receive_DMA(hds->huart,  hds->rxData, 8) != HAL_OK) return 0;
+    if (HAL_UART_Receive_DMA(hds->huart, hds->rxData, 8) != HAL_OK) return 0;
+    if (HAL_UART_Transmit_DMA(hds->huart, tx_buf, 8) != HAL_OK) {
+        HAL_UART_AbortReceive(hds->huart);
+        return 0;
+    }
 
     /* Wait for RX complete (set by callback) with timeout */
     uint32_t tickstart = HAL_GetTick();
     while (hds->rxDone == 0) {
         if ((HAL_GetTick() - tickstart) > DMA_TIMEOUT_MS) {
             HAL_UART_AbortReceive(hds->huart);
+            HAL_UART_AbortTransmit(hds->huart);
             return 0;
         }
     }
@@ -308,6 +335,87 @@ DS18B20_Status_t DS18B20_GetTemperatureByROM(DS18B20_HandleTypeDef *hds, uint8_t
 
 
 /* -------------------------------------------------------------------------- */
+DS18B20_Status_t DS18B20_SearchROM(DS18B20_HandleTypeDef *hds, uint8_t rom_codes[][8], uint8_t max, uint8_t *found){
+    *found = 0;
+    uint8_t last_discrepancy = 0;    // remembers where we branched last time
+    uint8_t rom_buf[8];
+    uint8_t search_done = 0;
+
+    memset(rom_buf, 0, sizeof(rom_buf));
+
+    while (!search_done && *found < max){
+        DS18B20_Status_t ret = DS18B20_Reset(hds);
+        if (ret != DS18B20_OK) return ret;
+
+        DS18B20_WriteByte(hds, DS18B20_CMD_SEARCH_ROM);   /* 0xF0 */
+        
+        /* Flush RX buffer to remove echoes from WriteByte */
+        uint8_t flush;
+        while(HAL_UART_Receive(hds->huart, &flush, 1, 1) == HAL_OK);
+
+        uint8_t new_discrepancy = 0;
+
+        /* Walk all 64 bit positions */
+        for (int bit_pos = 1; bit_pos <= 64; bit_pos++){
+            /* Read two bits: the bit and its complement from all devices */
+            uint8_t bit     = DS18B20_ReadBit(hds);
+            uint8_t bit_cmp = DS18B20_ReadBit(hds);
+
+            if (bit == 1 && bit_cmp == 1) {
+                /* Both 1 — no devices responded, bus error */
+                return DS18B20_ERR_NO_DEVICE;
+            }
+
+            uint8_t chosen;
+
+            if (bit != bit_cmp) {
+                /* All devices agree on this bit — no choice needed */
+                chosen = bit;
+            } else {
+                /* Discrepancy — devices have both 0 and 1 at this position */
+                if (bit_pos < last_discrepancy) {
+                    /* Follow same path as last run */
+                    chosen = (rom_buf[(bit_pos - 1) / 8] >> ((bit_pos - 1) % 8)) & 0x01;
+                } else if (bit_pos == last_discrepancy) {
+                    chosen = 1;   /* At last branch: now take the 1 path */
+                } else {
+                    chosen = 0;   /* Beyond last branch: always take 0 first */
+                    new_discrepancy = bit_pos;
+                }
+            }
+
+            /* Write chosen bit into rom_buf */
+            if (chosen) {
+                rom_buf[(bit_pos - 1) / 8] |=  (1 << ((bit_pos - 1) % 8));
+            } else {
+                rom_buf[(bit_pos - 1) / 8] &= ~(1 << ((bit_pos - 1) % 8));
+            }
+
+            /* Send chosen bit to all devices — non-chosen devices drop off */
+            DS18B20_WriteBit(hds, chosen);
+        }
+
+        /* Validate CRC of discovered ROM */
+        if (onewire_crc8(rom_buf, 7) != rom_buf[7]) {
+            return DS18B20_ERR_CRC;
+        }
+
+        /* Store discovered ROM code */
+        memcpy(rom_codes[*found], rom_buf, 8);
+        (*found)++;
+
+        last_discrepancy = new_discrepancy;
+
+        /* No new discrepancy means this was the last device */
+        if (last_discrepancy == 0) {
+            search_done = 1;
+        }
+    }
+
+    return DS18B20_OK;
+}
+
+/* -------------------------------------------------------------------------- */
 void DS18B20_RxCpltCallback(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart){
     if (huart->Instance == hds->huart->Instance) {
         hds->rxDone = 1;
@@ -320,4 +428,3 @@ void DS18B20_ErrorCallback(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart
         hds->rxDone = -1;
     }
 }
-

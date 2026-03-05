@@ -84,9 +84,8 @@ typedef struct {
  * @brief  Initialize the DS18B20 handle with a UART peripheral and resolution.
  * @param  hds    Pointer to DS18B20 handle
  * @param  huart  Pointer to initialized HAL UART handle (half-duplex mode)
- * @param  res    Resolution: DS18B20_RES_9BIT … DS18B20_RES_12BIT
  */
-void DS18B20_Init(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart, uint8_t res);
+void DS18B20_Init(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart);
 
 
 
@@ -219,6 +218,19 @@ void DS18B20_RxCpltCallback(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huar
  */
 void DS18B20_ErrorCallback(DS18B20_HandleTypeDef *hds, UART_HandleTypeDef *huart);
 
+
+/**
+ * @brief  Discovers all DS18B20 ROM codes on the bus using the Search ROM algorithm.
+ * @note   Call this at startup to find all connected sensors automatically.
+ *         No need to hardcode ROM codes — useful when sensors are user-replaceable
+ *         or the count is unknown at compile time.
+ * @param  hds        Pointer to DS18B20 handle
+ * @param  rom_codes  Output: 2D array to store found ROM codes [max_devices][8]
+ * @param  max        Maximum number of devices to search for (size of rom_codes array)
+ * @param  found      Output: number of devices actually found
+ * @retval DS18B20_OK, DS18B20_ERR_NO_DEVICE, DS18B20_ERR_TIMEOUT
+ */
+DS18B20_Status_t DS18B20_SearchROM(DS18B20_HandleTypeDef *hds, uint8_t rom_codes[][8], uint8_t max, uint8_t *found);
 
 
 
